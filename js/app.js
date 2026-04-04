@@ -1,6 +1,11 @@
 /**
  * Sound Bath App — Main controller
  * Wires up the audio engine, UI sliders, presets, and animation system.
+ *
+ * Slider layout (10 sliders, 3 bowls):
+ *   Bowl 1 (69 Hz):  [0] Hit  [1] Sing  [2] Harmonic
+ *   Bowl 2 (276 Hz): [3] Hit  [4] Sing  [5] Sing  [6] Harmonic
+ *   Bowl 3 (552 Hz): [7] Hit  [8] Sing  [9] Harmonic
  */
 
 (function () {
@@ -10,22 +15,23 @@
   const visualizer = new Visualizer(document.getElementById('visualizer'));
 
   // --- State ---
-  let sliderValues = [80, 70, 60, 75, 50, 65, 55, 45, 35, 25]; // default preset
-  let animationMode = 'slow'; // off | slow | medium | fast
+  let sliderValues = [60, 80, 40, 50, 75, 65, 35, 45, 70, 30]; // default
+  let animationMode = 'slow';
   let animationTimer = null;
   let isPlaying = false;
 
-  // --- Presets ---
+  // --- Presets tuned for hit/sing/harmonic per bowl ---
   const PRESETS = {
-    default:    [80, 70, 60, 75, 50, 65, 55, 45, 35, 25],
-    deep:       [100, 90, 80, 60, 30, 20, 10, 5, 0, 0],
-    bright:     [10, 15, 20, 30, 50, 70, 80, 90, 95, 100],
-    hollow:     [90, 20, 80, 15, 70, 10, 60, 5, 50, 0],
-    celestial:  [20, 30, 40, 50, 60, 70, 80, 90, 95, 100],
-    meditation: [60, 50, 40, 70, 30, 60, 20, 50, 10, 40],
-    chakra:     [70, 0, 70, 0, 70, 0, 70, 0, 70, 0],
-    rain:       [40, 45, 50, 55, 60, 65, 60, 55, 50, 45],
-    random:     null, // generated on click
+    //                   B1:Hit Sing Harm  B2:Hit Sing Sing Harm  B3:Hit Sing Harm
+    default:    [60, 80, 40,   50, 75, 65, 35,   45, 70, 30],
+    deep:       [90, 95, 70,   60, 50, 40, 20,   10,  5,  0],
+    bright:     [10, 20, 15,   30, 40, 50, 45,   70, 90, 85],
+    singing:    [ 0, 95,  0,    0, 90, 85,  0,    0, 80,  0],
+    struck:     [95,  0, 30,   90,  0,  0, 25,   85,  0, 20],
+    overtones:  [ 0, 20, 90,    0, 15,  0, 85,    0, 10, 80],
+    meditation: [40, 70, 50,   30, 80, 60, 40,   20, 65, 35],
+    warm:       [75, 90, 60,   65, 70, 55, 30,   15, 20, 10],
+    random:     null,
   };
 
   // --- DOM refs ---
@@ -37,40 +43,71 @@
   const presetBtns = document.querySelectorAll('.preset-btn');
   const animBtns = document.querySelectorAll('.anim-btn');
 
-  // --- Build sliders ---
-  const bowlConfigs = engine.getBowlConfigs();
+  // --- Build grouped sliders ---
+  const configs = engine.getSliderConfigs();
   const sliderEls = [];
   const glowEls = [];
 
-  bowlConfigs.forEach((config, i) => {
-    const div = document.createElement('div');
-    div.className = 'bowl-slider';
-    div.innerHTML = `
-      <span class="slider-label">${config.name}</span>
-      <div class="vertical-slider-wrap">
-        <input type="range" min="0" max="100" value="${sliderValues[i]}"
-               data-index="${i}" aria-label="${config.name} bowl at ${config.note}">
-      </div>
-      <div class="slider-glow"></div>
-      <span class="freq-label">${config.note}</span>
-    `;
-    slidersContainer.appendChild(div);
+  // Group configs by bowl number
+  const bowlGroups = [
+    { bowl: 1, freq: '69 Hz',  indices: [0, 1, 2] },
+    { bowl: 2, freq: '276 Hz', indices: [3, 4, 5, 6] },
+    { bowl: 3, freq: '552 Hz', indices: [7, 8, 9] },
+  ];
 
-    const input = div.querySelector('input[type="range"]');
-    const glow = div.querySelector('.slider-glow');
-    sliderEls.push(input);
-    glowEls.push(glow);
+  bowlGroups.forEach((group, groupIdx) => {
+    // Add separator between groups
+    if (groupIdx > 0) {
+      const sep = document.createElement('div');
+      sep.className = 'bowl-separator';
+      slidersContainer.appendChild(sep);
+    }
 
-    input.addEventListener('input', (e) => {
-      const val = parseInt(e.target.value, 10);
-      sliderValues[i] = val;
-      updateBowl(i, val);
-      updateGlow(i, val);
-    });
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'bowl-group';
+    groupDiv.dataset.bowl = group.bowl;
+
+    const label = document.createElement('div');
+    label.className = 'bowl-group-label';
+    label.textContent = `Bowl ${group.bowl} — ${group.freq}`;
+    groupDiv.appendChild(label);
+
+    const slidersDiv = document.createElement('div');
+    slidersDiv.className = 'bowl-group-sliders';
+
+    for (const i of group.indices) {
+      const cfg = configs[i];
+      const div = document.createElement('div');
+      div.className = 'bowl-slider';
+      div.innerHTML = `
+        <span class="slider-label">${cfg.name}</span>
+        <div class="vertical-slider-wrap">
+          <input type="range" min="0" max="100" value="${sliderValues[i]}"
+                 data-index="${i}" aria-label="Bowl ${group.bowl} ${cfg.name}">
+        </div>
+        <div class="slider-glow"></div>
+      `;
+      slidersDiv.appendChild(div);
+
+      const input = div.querySelector('input[type="range"]');
+      const glow = div.querySelector('.slider-glow');
+      sliderEls[i] = input;
+      glowEls[i] = glow;
+
+      input.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value, 10);
+        sliderValues[i] = val;
+        updateChannel(i, val);
+        updateGlow(i, val);
+      });
+    }
+
+    groupDiv.appendChild(slidersDiv);
+    slidersContainer.appendChild(groupDiv);
   });
 
-  function updateBowl(index, value) {
-    engine.setBowlVolume(index, value / 100, 0.08);
+  function updateChannel(index, value) {
+    engine.setChannelVolume(index, value / 100, 0.08);
   }
 
   function updateGlow(index, value) {
@@ -84,9 +121,9 @@
       sliderEls[i].value = values[i];
       updateGlow(i, values[i]);
       if (smooth) {
-        engine.setBowlVolume(i, values[i] / 100, 0.5);
+        engine.setChannelVolume(i, values[i] / 100, 0.5);
       } else {
-        updateBowl(i, values[i]);
+        updateChannel(i, values[i]);
       }
     }
   }
@@ -100,13 +137,9 @@
       playIcon.style.display = 'none';
       pauseIcon.style.display = 'block';
       visualizer.start();
-
-      // Apply current slider values
       for (let i = 0; i < sliderValues.length; i++) {
-        updateBowl(i, sliderValues[i]);
+        updateChannel(i, sliderValues[i]);
       }
-
-      // Start animation if enabled
       startAnimation();
     } else {
       engine.pause();
@@ -126,42 +159,31 @@
   // --- Presets ---
   presetBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      const presetName = btn.dataset.preset;
+      const name = btn.dataset.preset;
       let values;
 
-      if (presetName === 'random') {
+      if (name === 'random') {
         values = Array.from({ length: 10 }, () => Math.floor(Math.random() * 101));
       } else {
-        values = [...PRESETS[presetName]];
+        values = [...PRESETS[name]];
       }
 
       applySliderValues(values, true);
-
-      // Update active state
       presetBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
     });
   });
 
   // --- Animation system ---
-  // Slowly varies slider values to create an evolving soundscape
-  const ANIM_SPEEDS = {
-    off: 0,
-    slow: 8000,
-    medium: 4000,
-    fast: 2000,
-  };
+  const ANIM_SPEEDS = { off: 0, slow: 8000, medium: 4000, fast: 2000 };
 
   animBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       animationMode = btn.dataset.anim;
       animBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-
       stopAnimation();
-      if (isPlaying && animationMode !== 'off') {
-        startAnimation();
-      }
+      if (isPlaying && animationMode !== 'off') startAnimation();
     });
   });
 
@@ -170,20 +192,16 @@
     stopAnimation();
 
     const interval = ANIM_SPEEDS[animationMode];
-
     animationTimer = setInterval(() => {
       if (!isPlaying) return;
-
-      // Pick a random slider and nudge it
       const idx = Math.floor(Math.random() * 10);
       const current = sliderValues[idx];
       const delta = (Math.random() - 0.5) * 30;
       const newVal = Math.max(0, Math.min(100, Math.round(current + delta)));
-
       sliderValues[idx] = newVal;
       sliderEls[idx].value = newVal;
       updateGlow(idx, newVal);
-      engine.setBowlVolume(idx, newVal / 100, 1.0); // slow ramp for smooth transition
+      engine.setChannelVolume(idx, newVal / 100, 1.0);
     }, interval);
   }
 
@@ -205,12 +223,11 @@
   }
   updateVisualizerLevels();
 
-  // --- Init glow bars ---
+  // Init glow bars
   for (let i = 0; i < sliderValues.length; i++) {
     updateGlow(i, sliderValues[i]);
   }
 
-  // Start visualizer (runs with low opacity even before playing)
   visualizer.start();
 
 })();

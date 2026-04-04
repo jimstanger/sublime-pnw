@@ -76,9 +76,11 @@ class Visualizer {
 
   _drawBowlRings(energy) {
     const { ctx, cx, cy } = this;
+    // Colors grouped by bowl: Bowl 1 amber, Bowl 2 rose, Bowl 3 teal
     const colors = [
-      '#c9a84c', '#c9944c', '#c97d4c', '#c96a4c', '#c94c6a',
-      '#a84cc9', '#6a4cc9', '#4c6ac9', '#4c94c9', '#4cc9a8'
+      '#c9a84c', '#d4b85c', '#b89840',  // Bowl 1 (69 Hz): Hit, Sing, Harmonic
+      '#c97daa', '#d48dba', '#b96d9a', '#a85d8a',  // Bowl 2 (276 Hz)
+      '#4cc9a8', '#5cd9b8', '#3cb998',  // Bowl 3 (552 Hz)
     ];
 
     for (let i = 0; i < 10; i++) {
