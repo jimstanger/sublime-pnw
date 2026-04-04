@@ -1,92 +1,357 @@
 /**
  * Sound Bath Audio Engine
- * Synthesizes singing bowl tones using Web Audio API.
- * Each bowl is created from a fundamental frequency plus inharmonic partials
- * that mimic the physics of real Tibetan singing bowls.
+ *
+ * Models 3 Tibetan singing bowls at 69 Hz, 276 Hz, and 552 Hz.
+ * Each bowl has three excitation modes synthesized differently:
+ *
+ *   Hit      — Struck with a mallet. Sharp attack, bright harmonics, exponential decay.
+ *              Repeats periodically with slight timing randomization.
+ *   Sing     — Rim rubbing. Continuous sustained tone with slow amplitude modulation,
+ *              slight pitch wobble, detuned oscillator pairs, and filtered noise.
+ *   Harmonic — Upper partials only. Bright, metallic, with beating between close partials.
+ *
+ * Bowl partial ratios are based on measured Tibetan bowl acoustics:
+ *   (1, 2.71, 4.98, 5.22, 7.81)
  */
 
-class SingingBowl {
-  constructor(audioCtx, frequency, destination) {
-    this.audioCtx = audioCtx;
-    this.frequency = frequency;
-    this.destination = destination;
-    this.gainNode = audioCtx.createGain();
+class BowlHit {
+  constructor(ctx, freq, dest) {
+    this.ctx = ctx;
+    this.freq = freq;
+    this.dest = dest;
+    this.volume = 0;
+    this.gainNode = ctx.createGain();
     this.gainNode.gain.value = 0;
-    this.gainNode.connect(destination);
-    this.oscillators = [];
-    this._createPartials();
+    this.gainNode.connect(dest);
+    this.hitInterval = null;
+    this.partialRatios = [1.0, 2.71, 4.98, 5.22, 7.81];
+    this.partialGains = [1.0, 0.4, 0.2, 0.15, 0.08];
+    this.decayTimes =   [4.0, 2.5, 1.8, 1.6, 1.0]; // higher partials decay faster
   }
 
-  _createPartials() {
-    // Singing bowls have inharmonic partials - these ratios approximate
-    // the characteristic metallic resonance of Tibetan singing bowls
-    const partials = [
-      { ratio: 1.0,    gain: 1.0   },  // fundamental
-      { ratio: 2.71,   gain: 0.35  },  // first overtone (characteristic)
-      { ratio: 4.98,   gain: 0.15  },  // second overtone
-      { ratio: 5.22,   gain: 0.12  },  // beating pair with above
-      { ratio: 7.81,   gain: 0.06  },  // upper partial
-    ];
+  _strike() {
+    const now = this.ctx.currentTime;
 
-    for (const partial of partials) {
-      const osc = this.audioCtx.createOscillator();
-      const partialGain = this.audioCtx.createGain();
-
+    for (let i = 0; i < this.partialRatios.length; i++) {
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.value = this.frequency * partial.ratio;
-      partialGain.gain.value = partial.gain;
+      // Slight random detuning for naturalness
+      const detune = (Math.random() - 0.5) * 3;
+      osc.frequency.value = this.freq * this.partialRatios[i] + detune;
+      env.gain.value = 0;
+      osc.connect(env);
+      env.connect(this.gainNode);
 
-      osc.connect(partialGain);
-      partialGain.connect(this.gainNode);
-      osc.start();
+      const peak = this.partialGains[i] * 0.3;
+      const decay = this.decayTimes[i] + (Math.random() - 0.5) * 0.3;
 
-      this.oscillators.push({ osc, gain: partialGain, partial });
+      // Attack
+      env.gain.setValueAtTime(0, now);
+      env.gain.linearRampToValueAtTime(peak, now + 0.005);
+      // Decay
+      env.gain.setTargetAtTime(0, now + 0.005, decay);
+
+      osc.start(now);
+      osc.stop(now + decay * 6);
     }
+
+    // Transient noise burst for the "click" of the strike
+    const bufferSize = this.ctx.sampleRate * 0.04;
+    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 8);
+    }
+
+    const noiseSrc = this.ctx.createBufferSource();
+    noiseSrc.buffer = noiseBuffer;
+    const noiseFilter = this.ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = this.freq * 3;
+    noiseFilter.Q.value = 1.5;
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.value = 0.08;
+
+    noiseSrc.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.gainNode);
+    noiseSrc.start(now);
+    noiseSrc.stop(now + 0.04);
   }
 
   setVolume(value, rampTime = 0.1) {
-    const now = this.audioCtx.currentTime;
+    this.volume = value;
+    const now = this.ctx.currentTime;
+    this.gainNode.gain.cancelScheduledValues(now);
+    this.gainNode.gain.setTargetAtTime(value, now, rampTime);
+
+    if (value > 0.01 && !this.hitInterval) {
+      this._strike();
+      this._startLoop();
+    } else if (value <= 0.01 && this.hitInterval) {
+      this._stopLoop();
+    }
+  }
+
+  _startLoop() {
+    // Repeat strikes every 5-8 seconds with randomization
+    const schedule = () => {
+      const delay = 5000 + Math.random() * 3000;
+      this.hitInterval = setTimeout(() => {
+        if (this.volume > 0.01) {
+          this._strike();
+          schedule();
+        } else {
+          this.hitInterval = null;
+        }
+      }, delay);
+    };
+    schedule();
+  }
+
+  _stopLoop() {
+    if (this.hitInterval) {
+      clearTimeout(this.hitInterval);
+      this.hitInterval = null;
+    }
+  }
+
+  destroy() {
+    this._stopLoop();
+    this.gainNode.disconnect();
+  }
+}
+
+class BowlSing {
+  constructor(ctx, freq, dest) {
+    this.ctx = ctx;
+    this.freq = freq;
+    this.dest = dest;
+    this.gainNode = ctx.createGain();
+    this.gainNode.gain.value = 0;
+    this.gainNode.connect(dest);
+    this.nodes = [];
+    this._create();
+  }
+
+  _create() {
+    const ctx = this.ctx;
+    const freq = this.freq;
+
+    // The "singing" sound: fundamental + first overtone, each with a detuned pair
+    // to create natural beating / chorus effect
+    const voices = [
+      { f: freq,         gain: 0.20, detune: 0.4,  type: 'sine'     },
+      { f: freq,         gain: 0.12, detune: -0.5, type: 'triangle' },
+      { f: freq * 2.71,  gain: 0.06, detune: 0.7,  type: 'sine'     },
+      { f: freq * 2.71,  gain: 0.04, detune: -0.6, type: 'sine'     },
+    ];
+
+    for (const v of voices) {
+      const osc = ctx.createOscillator();
+      osc.type = v.type;
+      osc.frequency.value = v.f + v.detune;
+      const g = ctx.createGain();
+      g.gain.value = v.gain;
+
+      // Slow amplitude modulation (tremolo) for organic feel
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      lfo.type = 'sine';
+      lfo.frequency.value = 0.15 + Math.random() * 0.2; // 0.15-0.35 Hz
+      lfoGain.gain.value = v.gain * 0.3; // 30% depth
+      lfo.connect(lfoGain);
+      lfoGain.connect(g.gain);
+
+      // Slow pitch wobble
+      const vibrato = ctx.createOscillator();
+      const vibratoGain = ctx.createGain();
+      vibrato.type = 'sine';
+      vibrato.frequency.value = 0.08 + Math.random() * 0.1;
+      vibratoGain.gain.value = v.f * 0.001; // very subtle
+      vibrato.connect(vibratoGain);
+      vibratoGain.connect(osc.frequency);
+
+      osc.connect(g);
+      g.connect(this.gainNode);
+
+      osc.start();
+      lfo.start();
+      vibrato.start();
+
+      this.nodes.push(osc, lfo, vibrato);
+    }
+
+    // Filtered noise layer — the breathy, airy quality of the mallet on metal
+    this._addBreathNoise();
+  }
+
+  _addBreathNoise() {
+    const ctx = this.ctx;
+    // Create a looping noise buffer
+    const bufferSize = ctx.sampleRate * 2;
+    const buffer = ctx.createBuffer(2, bufferSize, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buffer.getChannelData(ch);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1);
+      }
+    }
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    noise.loop = true;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = this.freq * 2;
+    filter.Q.value = 2.0;
+
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.value = 0.012;
+
+    // Modulate the noise amplitude slowly
+    const noiseLfo = ctx.createOscillator();
+    const noiseLfoGain = ctx.createGain();
+    noiseLfo.type = 'sine';
+    noiseLfo.frequency.value = 0.2 + Math.random() * 0.15;
+    noiseLfoGain.gain.value = 0.006;
+    noiseLfo.connect(noiseLfoGain);
+    noiseLfoGain.connect(noiseGain.gain);
+
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(this.gainNode);
+
+    noise.start();
+    noiseLfo.start();
+
+    this.nodes.push(noise, noiseLfo);
+  }
+
+  setVolume(value, rampTime = 0.1) {
+    const now = this.ctx.currentTime;
     this.gainNode.gain.cancelScheduledValues(now);
     this.gainNode.gain.setTargetAtTime(value, now, rampTime);
   }
 
-  getVolume() {
-    return this.gainNode.gain.value;
+  destroy() {
+    for (const n of this.nodes) {
+      n.stop();
+      n.disconnect();
+    }
+    this.gainNode.disconnect();
+    this.nodes = [];
+  }
+}
+
+class BowlHarmonic {
+  constructor(ctx, freq, dest) {
+    this.ctx = ctx;
+    this.freq = freq;
+    this.dest = dest;
+    this.gainNode = ctx.createGain();
+    this.gainNode.gain.value = 0;
+    this.gainNode.connect(dest);
+    this.nodes = [];
+    this._create();
+  }
+
+  _create() {
+    const ctx = this.ctx;
+    const freq = this.freq;
+
+    // Harmonics mode: suppress fundamental, emphasize upper partials
+    // with close-frequency pairs for beating
+    const partials = [
+      { f: freq * 2.71,  f2: freq * 2.73,  gain: 0.15 },
+      { f: freq * 4.98,  f2: freq * 5.02,  gain: 0.10 },
+      { f: freq * 5.22,  f2: freq * 5.18,  gain: 0.08 },
+      { f: freq * 7.81,  f2: freq * 7.85,  gain: 0.04 },
+    ];
+
+    for (const p of partials) {
+      // Pair of oscillators at close frequencies = beating
+      for (const f of [p.f, p.f2]) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = f;
+        const g = ctx.createGain();
+        g.gain.value = p.gain;
+
+        // Slow amplitude drift
+        const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+        lfo.type = 'sine';
+        lfo.frequency.value = 0.05 + Math.random() * 0.1;
+        lfoGain.gain.value = p.gain * 0.25;
+        lfo.connect(lfoGain);
+        lfoGain.connect(g.gain);
+
+        osc.connect(g);
+        g.connect(this.gainNode);
+
+        osc.start();
+        lfo.start();
+        this.nodes.push(osc, lfo);
+      }
+    }
+
+    // A touch of fundamental for body, but very quiet
+    const fundOsc = ctx.createOscillator();
+    fundOsc.type = 'sine';
+    fundOsc.frequency.value = freq;
+    const fundGain = ctx.createGain();
+    fundGain.gain.value = 0.03;
+    fundOsc.connect(fundGain);
+    fundGain.connect(this.gainNode);
+    fundOsc.start();
+    this.nodes.push(fundOsc);
+  }
+
+  setVolume(value, rampTime = 0.1) {
+    const now = this.ctx.currentTime;
+    this.gainNode.gain.cancelScheduledValues(now);
+    this.gainNode.gain.setTargetAtTime(value, now, rampTime);
   }
 
   destroy() {
-    for (const { osc } of this.oscillators) {
-      osc.stop();
-      osc.disconnect();
+    for (const n of this.nodes) {
+      n.stop();
+      n.disconnect();
     }
     this.gainNode.disconnect();
-    this.oscillators = [];
+    this.nodes = [];
   }
 }
+
+// ─── Main Engine ────────────────────────────────────────────
 
 class AudioEngine {
   constructor() {
     this.audioCtx = null;
     this.masterGain = null;
     this.compressor = null;
-    this.convolver = null;
-    this.bowls = [];
+    this.channels = []; // 10 channel objects, each with a setVolume method
     this.isPlaying = false;
     this.initialized = false;
 
-    // 10 singing bowl frequencies spanning a wide range
-    // Tuned to create a harmonious, meditative drone
-    this.bowlConfigs = [
-      { freq: 110.00, name: 'Sub',     note: 'A2'  },
-      { freq: 146.83, name: 'Bass',    note: 'D3'  },
-      { freq: 174.61, name: 'Low',     note: 'F3'  },
-      { freq: 220.00, name: 'Root',    note: 'A3'  },
-      { freq: 277.18, name: 'Mid',     note: 'C#4' },
-      { freq: 329.63, name: 'Heart',   note: 'E4'  },
-      { freq: 392.00, name: 'Throat',  note: 'G4'  },
-      { freq: 440.00, name: 'Third',   note: 'A4'  },
-      { freq: 554.37, name: 'Crown',   note: 'C#5' },
-      { freq: 659.25, name: 'Ether',   note: 'E5'  },
+    // 3 bowls, 10 slider channels total
+    // Bowl 1 (69 Hz):  Hit, Sing, Harmonic
+    // Bowl 2 (276 Hz): Hit, Sing, Sing, Harmonic
+    // Bowl 3 (552 Hz): Hit, Sing, Harmonic
+    this.sliderConfigs = [
+      { bowl: 1, freq:  69, mode: 'hit',      name: 'Hit',      note: '69 Hz'  },
+      { bowl: 1, freq:  69, mode: 'sing',     name: 'Sing',     note: '69 Hz'  },
+      { bowl: 1, freq:  69, mode: 'harmonic', name: 'Harmonic', note: '69 Hz'  },
+      { bowl: 2, freq: 276, mode: 'hit',      name: 'Hit',      note: '276 Hz' },
+      { bowl: 2, freq: 276, mode: 'sing',     name: 'Sing',     note: '276 Hz' },
+      { bowl: 2, freq: 276, mode: 'sing2',    name: 'Sing',     note: '276 Hz' },
+      { bowl: 2, freq: 276, mode: 'harmonic', name: 'Harmonic', note: '276 Hz' },
+      { bowl: 3, freq: 552, mode: 'hit',      name: 'Hit',      note: '552 Hz' },
+      { bowl: 3, freq: 552, mode: 'sing',     name: 'Sing',     note: '552 Hz' },
+      { bowl: 3, freq: 552, mode: 'harmonic', name: 'Harmonic', note: '552 Hz' },
     ];
   }
 
@@ -95,29 +360,27 @@ class AudioEngine {
 
     this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-    // Create dynamics compressor to prevent clipping
+    // Dynamics compressor
     this.compressor = this.audioCtx.createDynamicsCompressor();
-    this.compressor.threshold.value = -20;
-    this.compressor.knee.value = 20;
-    this.compressor.ratio.value = 4;
-    this.compressor.attack.value = 0.005;
-    this.compressor.release.value = 0.1;
+    this.compressor.threshold.value = -18;
+    this.compressor.knee.value = 15;
+    this.compressor.ratio.value = 6;
+    this.compressor.attack.value = 0.003;
+    this.compressor.release.value = 0.15;
 
-    // Create master gain
+    // Master gain
     this.masterGain = this.audioCtx.createGain();
     this.masterGain.gain.value = 0.7;
 
-    // Create reverb for spaciousness
+    // Reverb
     this.convolver = this.audioCtx.createConvolver();
-    this.convolver.buffer = this._createReverbIR(4.0, 2.5);
+    this.convolver.buffer = this._createReverbIR(5.0, 2.0);
 
-    // Wet/dry mix for reverb
     this.dryGain = this.audioCtx.createGain();
-    this.dryGain.gain.value = 0.6;
+    this.dryGain.gain.value = 0.55;
     this.wetGain = this.audioCtx.createGain();
-    this.wetGain.gain.value = 0.4;
+    this.wetGain.gain.value = 0.45;
 
-    // Routing: bowls -> compressor -> dry + wet(reverb) -> master -> output
     this.compressor.connect(this.dryGain);
     this.compressor.connect(this.convolver);
     this.convolver.connect(this.wetGain);
@@ -125,27 +388,42 @@ class AudioEngine {
     this.wetGain.connect(this.masterGain);
     this.masterGain.connect(this.audioCtx.destination);
 
-    // Create all singing bowls
-    for (const config of this.bowlConfigs) {
-      const bowl = new SingingBowl(this.audioCtx, config.freq, this.compressor);
-      this.bowls.push(bowl);
+    // Create channels for each slider
+    for (const cfg of this.sliderConfigs) {
+      let channel;
+      // The second "sing" for bowl 2 uses a slightly different detune offset
+      // to sound distinct from the first sing
+      const freq = cfg.mode === 'sing2' ? cfg.freq * 1.002 : cfg.freq;
+      const mode = cfg.mode === 'sing2' ? 'sing' : cfg.mode;
+
+      if (mode === 'hit') {
+        channel = new BowlHit(this.audioCtx, freq, this.compressor);
+      } else if (mode === 'sing') {
+        channel = new BowlSing(this.audioCtx, freq, this.compressor);
+      } else {
+        channel = new BowlHarmonic(this.audioCtx, freq, this.compressor);
+      }
+      this.channels.push(channel);
     }
 
     this.initialized = true;
   }
 
   _createReverbIR(duration, decay) {
-    const sampleRate = this.audioCtx.sampleRate;
-    const length = sampleRate * duration;
-    const impulse = this.audioCtx.createBuffer(2, length, sampleRate);
-
-    for (let channel = 0; channel < 2; channel++) {
-      const data = impulse.getChannelData(channel);
-      for (let i = 0; i < length; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+    const rate = this.audioCtx.sampleRate;
+    const len = rate * duration;
+    const buf = this.audioCtx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        // Shaped reverb: early reflections + late diffuse tail
+        const t = i / len;
+        const earlyGain = t < 0.02 ? 1.0 : 0;
+        const lateGain = Math.pow(1 - t, decay);
+        data[i] = (Math.random() * 2 - 1) * (earlyGain * 0.3 + lateGain);
       }
     }
-    return impulse;
+    return buf;
   }
 
   async play() {
@@ -158,9 +436,8 @@ class AudioEngine {
 
   pause() {
     if (!this.initialized) return;
-    // Fade out all bowls smoothly
-    for (const bowl of this.bowls) {
-      bowl.setVolume(0, 0.3);
+    for (const ch of this.channels) {
+      ch.setVolume(0, 0.5);
     }
     this.isPlaying = false;
   }
@@ -172,20 +449,19 @@ class AudioEngine {
     this.masterGain.gain.setTargetAtTime(value, now, 0.05);
   }
 
-  setBowlVolume(index, value, rampTime = 0.1) {
-    if (!this.bowls[index]) return;
+  setChannelVolume(index, value, rampTime = 0.1) {
+    if (!this.channels[index]) return;
     if (this.isPlaying) {
-      this.bowls[index].setVolume(value * 0.25, rampTime); // scale down to avoid clipping
+      this.channels[index].setVolume(value * 0.5, rampTime);
     }
   }
 
-  getBowlConfigs() {
-    return this.bowlConfigs;
+  getSliderConfigs() {
+    return this.sliderConfigs;
   }
 
   getAnalyserData() {
     if (!this.initialized) return null;
-    // Create analyser on demand
     if (!this.analyser) {
       this.analyser = this.audioCtx.createAnalyser();
       this.analyser.fftSize = 256;
@@ -197,5 +473,4 @@ class AudioEngine {
   }
 }
 
-// Export as global
 window.AudioEngine = AudioEngine;
