@@ -262,30 +262,34 @@ class BowlHarmonic {
     const ctx = this.ctx;
     const freq = this.freq;
 
-    // Harmonics mode: suppress fundamental, emphasize upper partials
-    // with close-frequency pairs for beating
+    // Harmonics mode: suppress fundamental, emphasize upper partials.
+    // Use very slight detuning (~0.5-1 Hz beat) for gentle shimmer,
+    // not the fast warble of wide detuning.
     const partials = [
-      { f: freq * 2.71,  f2: freq * 2.73,  gain: 0.15 },
-      { f: freq * 4.98,  f2: freq * 5.02,  gain: 0.10 },
-      { f: freq * 5.22,  f2: freq * 5.18,  gain: 0.08 },
-      { f: freq * 7.81,  f2: freq * 7.85,  gain: 0.04 },
+      { ratio: 2.71,  gain: 0.15 },
+      { ratio: 4.98,  gain: 0.10 },
+      { ratio: 5.22,  gain: 0.08 },
+      { ratio: 7.81,  gain: 0.04 },
     ];
 
     for (const p of partials) {
-      // Pair of oscillators at close frequencies = beating
-      for (const f of [p.f, p.f2]) {
+      const centerFreq = freq * p.ratio;
+      // Detune by only ~0.4 Hz each side for a gentle ~0.8 Hz shimmer
+      const detuneHz = 0.4;
+
+      for (const offset of [-detuneHz, detuneHz]) {
         const osc = ctx.createOscillator();
         osc.type = 'sine';
-        osc.frequency.value = f;
+        osc.frequency.value = centerFreq + offset;
         const g = ctx.createGain();
         g.gain.value = p.gain;
 
-        // Slow amplitude drift
+        // Very subtle amplitude drift — just enough to feel alive
         const lfo = ctx.createOscillator();
         const lfoGain = ctx.createGain();
         lfo.type = 'sine';
-        lfo.frequency.value = 0.05 + Math.random() * 0.1;
-        lfoGain.gain.value = p.gain * 0.25;
+        lfo.frequency.value = 0.03 + Math.random() * 0.04; // 0.03-0.07 Hz
+        lfoGain.gain.value = p.gain * 0.08; // 8% depth (was 25%)
         lfo.connect(lfoGain);
         lfoGain.connect(g.gain);
 
