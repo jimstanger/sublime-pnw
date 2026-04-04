@@ -262,9 +262,8 @@ class BowlHarmonic {
     const ctx = this.ctx;
     const freq = this.freq;
 
-    // Harmonics mode: suppress fundamental, emphasize upper partials.
-    // Use very slight detuning (~0.5-1 Hz beat) for gentle shimmer,
-    // not the fast warble of wide detuning.
+    // Harmonics mode: clean upper partials, no detuning or modulation.
+    // Single oscillator per partial for pure, clear tones.
     const partials = [
       { ratio: 2.71,  gain: 0.15 },
       { ratio: 4.98,  gain: 0.10 },
@@ -273,33 +272,17 @@ class BowlHarmonic {
     ];
 
     for (const p of partials) {
-      const centerFreq = freq * p.ratio;
-      // Detune by only ~0.4 Hz each side for a gentle ~0.8 Hz shimmer
-      const detuneHz = 0.4;
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq * p.ratio;
+      const g = ctx.createGain();
+      g.gain.value = p.gain;
 
-      for (const offset of [-detuneHz, detuneHz]) {
-        const osc = ctx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.value = centerFreq + offset;
-        const g = ctx.createGain();
-        g.gain.value = p.gain;
+      osc.connect(g);
+      g.connect(this.gainNode);
 
-        // Very subtle amplitude drift — just enough to feel alive
-        const lfo = ctx.createOscillator();
-        const lfoGain = ctx.createGain();
-        lfo.type = 'sine';
-        lfo.frequency.value = 0.03 + Math.random() * 0.04; // 0.03-0.07 Hz
-        lfoGain.gain.value = p.gain * 0.08; // 8% depth (was 25%)
-        lfo.connect(lfoGain);
-        lfoGain.connect(g.gain);
-
-        osc.connect(g);
-        g.connect(this.gainNode);
-
-        osc.start();
-        lfo.start();
-        this.nodes.push(osc, lfo);
-      }
+      osc.start();
+      this.nodes.push(osc);
     }
 
     // A touch of fundamental for body, but very quiet
