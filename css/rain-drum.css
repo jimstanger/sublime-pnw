@@ -1,0 +1,170 @@
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #0a0a10;
+  --cell-bg: #141420;
+  --cell-border: rgba(80, 70, 60, 0.2);
+  --text-dim: rgba(200, 190, 170, 0.3);
+  --text-muted: rgba(200, 190, 170, 0.15);
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body: 'Inter', -apple-system, sans-serif;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: var(--font-body);
+  color: #e8e0d4;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* === Navigation === */
+#nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.6rem 1.2rem;
+  background: rgba(10, 10, 16, 0.85);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(80, 70, 60, 0.15);
+}
+
+.nav-link {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(200, 190, 170, 0.5);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.nav-link:hover {
+  color: rgba(200, 190, 170, 0.9);
+}
+
+.nav-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 300;
+  letter-spacing: 0.12em;
+  color: rgba(200, 190, 170, 0.6);
+}
+
+/* === Grid === */
+#grid {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+}
+
+.cell {
+  position: relative;
+  border: 1px solid var(--cell-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: crosshair;
+  overflow: hidden;
+  transition: background-color 0.8s ease-out;
+}
+
+.cell-note {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 300;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  pointer-events: none;
+  transition: color 0.3s, transform 0.3s;
+}
+
+.cell-freq {
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+  pointer-events: none;
+}
+
+/* Ripple effect on trigger */
+.cell .ripple {
+  position: absolute;
+  border-radius: 50%;
+  transform: scale(0);
+  opacity: 0.5;
+  pointer-events: none;
+  animation: ripple-expand 1.2s ease-out forwards;
+}
+
+@keyframes ripple-expand {
+  0% {
+    transform: scale(0);
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+/* Active state */
+.cell.active .cell-note {
+  color: rgba(255, 240, 210, 0.8);
+  transform: scale(1.1);
+}
+
+/* === Hint overlay === */
+#hint {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 0;
+  right: 0;
+  text-align: center;
+  z-index: 100;
+  pointer-events: none;
+  transition: opacity 1.5s ease;
+}
+
+#hint p {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: rgba(200, 190, 170, 0.35);
+}
+
+#hint.hidden {
+  opacity: 0;
+}
+
+/* === Responsive: more columns on wide screens, fewer on narrow === */
+@media (min-aspect-ratio: 2/1) {
+  #grid {
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+  }
+}
+
+@media (max-aspect-ratio: 1/2) {
+  #grid {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+  }
+}
