@@ -58,6 +58,35 @@ body {
   opacity: 0.6;
 }
 
+/* === Navigation === */
+#nav {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.nav-title {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 300;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+}
+
+.nav-link {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.nav-link:hover {
+  color: var(--text-primary);
+}
+
 /* === App Container === */
 #app {
   position: relative;
