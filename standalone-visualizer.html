@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Animated Background</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; background: #0a0a12; }
+    #bg-visualizer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.6;
+    }
+    /* Put your own content above the visualizer here */
+    #content {
+      position: relative;
+      z-index: 1;
+      color: #e8e0d4;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      text-align: center;
+      padding: 3rem;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="bg-visualizer"></canvas>
+
+  <div id="content">
+    <h1>Your content here</h1>
+  </div>
+
+  <script>
+    /**
+     * Ambient Animated Background
+     *
+     * Self-contained canvas visualizer with concentric rings, floating
+     * particles, and a center glow. Runs in "fast mode" — 10 internal
+     * energy channels whose levels randomly update every 2 seconds,
+     * producing continuously evolving visuals.
+     *
+     * Usage:
+     *   1. Add  <canvas id="bg-visualizer"></canvas>  to your HTML
+     *   2. Include this script
+     *   3. Optionally style the canvas via CSS (position, opacity, etc.)
+     */
+
+    class AnimatedBackground {
+      constructor(canvas, options = {}) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        this.particles = [];
+        this.levels = new Array(10).fill(0);
+        this.targetLevels = new Array(10).fill(0);
+        this.animationId = null;
+        this.time = 0;
+        this.isActive = false;
+
+        // "Fast mode" default: update one channel every 2s
+        this.updateInterval = options.updateInterval || 2000;
+        this.colors = options.colors || [
+          '#c9a84c', '#c9944c', '#c97d4c', '#c96a4c', '#c94c6a',
+          '#a84cc9', '#6a4cc9', '#4c6ac9', '#4c94c9', '#4cc9a8'
+        ];
+        this.centerGlowColor = options.centerGlowColor || 'rgba(212, 160, 23, 1)';
+        this.trailFade = options.trailFade || 'rgba(10, 10, 18, 0.15)';
+
+        this._resize();
+        window.addEventListener('resize', () => this._resize());
+
+        // Seed initial targets
+        for (let i = 0; i < this.targetLevels.length; i++) {
+          this.targetLevels[i] = Math.random();
+        }
+      }
+
+      _resize() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+        this.cx = this.canvas.width / 2;
+        this.cy = this.canvas.height / 2;
+      }
+
+      start() {
+        if (this.isActive) return;
+        this.isActive = true;
+        this._animate();
+
+        // Start auto-cycling levels (fast mode)
+        this._levelTimer = setInterval(() => {
+          const idx = Math.floor(Math.random() * this.targetLevels.length);
+          const delta = (Math.random() - 0.5) * 0.6;
+          this.targetLevels[idx] = Math.max(
+            0, Math.min(1, this.targetLevels[idx] + delta)
+          );
+        }, this.updateInterval);
+      }
+
+      stop() {
+        this.isActive = false;
+        if (this.animationId) cancelAnimationFrame(this.animationId);
+        if (this._levelTimer) clearInterval(this._levelTimer);
+        this.animationId = null;
+        this._levelTimer = null;
+      }
+
+      _animate() {
+        if (!this.isActive) return;
+        this.animationId = requestAnimationFrame(() => this._animate());
+        this.time += 0.008;
+
+        // Smoothly approach target levels
+        for (let i = 0; i < this.levels.length; i++) {
+          this.levels[i] += (this.targetLevels[i] - this.levels[i]) * 0.01;
+        }
+
+        this._draw();
+      }
+
+      _draw() {
+        const { ctx, canvas } = this;
+
+        // Fade trail
+        ctx.fillStyle = this.trailFade;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const totalEnergy = this.levels.reduce((a, b) => a + b, 0) / this.levels.length;
+
+        this._drawRings();
+        this._drawParticles(totalEnergy);
+        this._drawCenterGlow(totalEnergy);
+      }
+
+      _drawRings() {
+        const { ctx, cx, cy } = this;
+        for (let i = 0; i < this.levels.length; i++) {
+          const level = this.levels[i];
+          if (level < 0.01) continue;
+          const baseRadius = 60 + i * 35;
+          const radius = baseRadius + Math.sin(this.time * (0.3 + i * 0.07)) * 15 * level;
+          const alpha = level * 0.3;
+
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+          ctx.strokeStyle = this.colors[i % this.colors.length];
+          ctx.globalAlpha = alpha;
+          ctx.lineWidth = 1.5 + level * 2;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius + 4, 0, Math.PI * 2);
+          ctx.globalAlpha = alpha * 0.3;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      _drawParticles(energy) {
+        const { ctx, cx, cy } = this;
+
+        // Spawn
+        if (energy > 0.05 && Math.random() < energy * 0.3) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 50 + Math.random() * 300;
+          this.particles.push({
+            x: cx + Math.cos(angle) * dist,
+            y: cy + Math.sin(angle) * dist,
+            vx: (Math.random() - 0.5) * 0.3,
+            vy: (Math.random() - 0.5) * 0.3 - 0.2,
+            life: 1,
+            decay: 0.002 + Math.random() * 0.005,
+            size: 1 + Math.random() * 2.5,
+            hue: 30 + Math.random() * 30,
+          });
+        }
+
+        // Update & draw
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+          const p = this.particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.life -= p.decay;
+          if (p.life <= 0) {
+            this.particles.splice(i, 1);
+            continue;
+          }
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+          ctx.fillStyle = `hsla(${p.hue}, 60%, 65%, ${p.life * 0.6})`;
+          ctx.fill();
+        }
+        if (this.particles.length > 200) {
+          this.particles.splice(0, this.particles.length - 200);
+        }
+      }
+
+      _drawCenterGlow(energy) {
+        const { ctx, cx, cy } = this;
+        if (energy < 0.01) return;
+        const pulseSize = 30 + Math.sin(this.time * 0.5) * 10 * energy;
+        const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseSize + 40);
+        gradient.addColorStop(0, this.centerGlowColor.replace(/[\d.]+\)$/, `${energy * 0.25})`));
+        gradient.addColorStop(0.5, this.centerGlowColor.replace(/[\d.]+\)$/, `${energy * 0.08})`));
+        gradient.addColorStop(1, this.centerGlowColor.replace(/[\d.]+\)$/, '0)'));
+        ctx.beginPath();
+        ctx.arc(cx, cy, pulseSize + 40, 0, Math.PI * 2);
+        ctx.fillStyle = gradient;
+        ctx.fill();
+      }
+    }
+
+    // === Initialize ===
+    const bg = new AnimatedBackground(document.getElementById('bg-visualizer'));
+    bg.start();
+  </script>
+</body>
+</html>
